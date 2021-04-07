@@ -80,17 +80,20 @@ func OpenDbForReadOnly(opts *Options, name string, errorIfLogFileExist bool) (*D
 	}, nil
 }
 
-// OpenAsSecondary opens a database with the specified options for readonly usage.
-func OpenAsSecondary(opts *Options, name string, path string) (*DB, error) {
+// OpenAsSecondary opens a secondary DB instance.
+// The secondary instance is similar to a read-only instance, since it supports read but not write, flush or compaction.
+// However, the secondary instance is able to dynamically tail the MANIFEST and write-ahead-logs (WALs) of the primary
+// and apply the related changes if applicable. User has to call DB.TryCatchUpWithPrimary explicitly at chosen times.
+func OpenAsSecondary(opts *Options, name string, secondaryPath string) (*DB, error) {
 	var (
-		cErr  *C.char
-		cName = C.CString(name)
-		cPath = C.CString(path)
+		cErr           *C.char
+		cName          = C.CString(name)
+		cSecondaryPath = C.CString(secondaryPath)
 	)
 	defer C.free(unsafe.Pointer(cName))
-	defer C.free(unsafe.Pointer(cPath))
+	defer C.free(unsafe.Pointer(cSecondaryPath))
 
-	db := C.rocksdb_open_as_secondary(opts.c, cName, cPath, &cErr)
+	db := C.rocksdb_open_as_secondary(opts.c, cName, cSecondaryPath, &cErr)
 
 	if cErr != nil {
 		defer C.rocksdb_free(unsafe.Pointer(cErr))
@@ -920,7 +923,7 @@ func (db *DB) IngestExternalFileCF(handle *ColumnFamilyHandle, filePaths []strin
 	return nil
 }
 
-// IngestExternalFileCF loads a list of external SST files for a column family.
+// TryCatchUpWithPrimary attempts to catch a secondary instance up with a primary.
 func (db *DB) TryCatchUpWithPrimary() error {
 	var cErr *C.char
 
