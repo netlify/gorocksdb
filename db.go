@@ -80,6 +80,29 @@ func OpenDbForReadOnly(opts *Options, name string, errorIfLogFileExist bool) (*D
 	}, nil
 }
 
+// OpenAsSecondary opens a database with the specified options for readonly usage.
+func OpenAsSecondary(opts *Options, name string, path string) (*DB, error) {
+	var (
+		cErr  *C.char
+		cName = C.CString(name)
+		cPath = C.CString(path)
+	)
+	defer C.free(unsafe.Pointer(cName))
+	defer C.free(unsafe.Pointer(cPath))
+
+	db := C.rocksdb_open_as_secondary(opts.c, cName, cPath, &cErr)
+
+	if cErr != nil {
+		defer C.rocksdb_free(unsafe.Pointer(cErr))
+		return nil, errors.New(C.GoString(cErr))
+	}
+	return &DB{
+		name: name,
+		c:    db,
+		opts: opts,
+	}, nil
+}
+
 // OpenDbColumnFamilies opens a database with the specified column families.
 func OpenDbColumnFamilies(
 	opts *Options,
@@ -761,7 +784,7 @@ func (db *DB) FlushCF(cf *ColumnFamilyHandle, opts *FlushOptions) error {
 		return errors.New(C.GoString(cErr))
 	}
 	return nil
-} 
+}
 
 // DisableFileDeletions disables file deletions and should be used when backup the database.
 func (db *DB) DisableFileDeletions() error {
@@ -889,6 +912,19 @@ func (db *DB) IngestExternalFileCF(handle *ColumnFamilyHandle, filePaths []strin
 		opts.c,
 		&cErr,
 	)
+
+	if cErr != nil {
+		defer C.rocksdb_free(unsafe.Pointer(cErr))
+		return errors.New(C.GoString(cErr))
+	}
+	return nil
+}
+
+// IngestExternalFileCF loads a list of external SST files for a column family.
+func (db *DB) TryCatchUpWithPrimary() error {
+	var cErr *C.char
+
+	C.rocksdb_try_catch_up_with_primary(db.c, &cErr)
 
 	if cErr != nil {
 		defer C.rocksdb_free(unsafe.Pointer(cErr))
