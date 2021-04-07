@@ -30,15 +30,16 @@ func TestSecondaryDb(t *testing.T) {
 	// seed with initial key
 	ensure.Nil(t, primary.Put(wo, k1, v1))
 
+	// initialize secondary instance
 	secondary := newSecondaryDB(t, primary.name, nil)
 
-	// retrieve from primary without sync
+	// retrieve seed data from primary without sync
 	r1, err := secondary.Get(ro, k1)
 	defer r1.Free()
 	ensure.Nil(t, err)
 	ensure.DeepEqual(t, r1.Data(), v1)
 
-	// add new key
+	// add new key to primary
 	ensure.Nil(t, primary.Put(wo, k2, v2))
 
 	// shouldn't be available to secondary yet (no sync)
