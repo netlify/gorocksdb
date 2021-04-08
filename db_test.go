@@ -2,6 +2,7 @@ package gorocksdb
 
 import (
 	"io/ioutil"
+	"os"
 	"strconv"
 	"testing"
 
@@ -11,6 +12,48 @@ import (
 func TestOpenDb(t *testing.T) {
 	db := newTestDB(t, "TestOpenDb", nil)
 	defer db.Close()
+}
+
+func TestSecondaryDb(t *testing.T) {
+	primary := newTestDB(t, "primary", nil)
+	defer primary.Close()
+
+	var (
+		k1 = []byte("k1")
+		k2 = []byte("k2")
+		v1 = []byte("v1")
+		v2 = []byte("v2")
+		ro = NewDefaultReadOptions()
+		wo = NewDefaultWriteOptions()
+	)
+
+	// seed with initial key
+	ensure.Nil(t, primary.Put(wo, k1, v1))
+
+	// initialize secondary instance
+	secondary := newSecondaryDB(t, primary.name, nil)
+
+	// retrieve seed data from primary without sync
+	r1, err := secondary.Get(ro, k1)
+	defer r1.Free()
+	ensure.Nil(t, err)
+	ensure.DeepEqual(t, r1.Data(), v1)
+
+	// add new key to primary
+	ensure.Nil(t, primary.Put(wo, k2, v2))
+
+	// shouldn't be available to secondary yet (no sync)
+	r2, err := secondary.Get(ro, k2)
+	defer r2.Free()
+	ensure.Nil(t, err, nil)
+
+	// available after sync
+	ensure.Nil(t, secondary.TryCatchUpWithPrimary())
+
+	r3, err := secondary.Get(ro, k2)
+	defer r3.Free()
+	ensure.Nil(t, err)
+	ensure.DeepEqual(t, r3.Data(), v2)
 }
 
 func TestDBCRUD(t *testing.T) {
@@ -137,6 +180,27 @@ func newTestDB(t *testing.T, name string, applyOpts func(opts *Options)) *DB {
 	}
 	db, err := OpenDb(opts, dir)
 	ensure.Nil(t, err)
+
+	return db
+}
+
+func newSecondaryDB(t *testing.T, primary string, applyOpts func(opts *Options)) *DB {
+	dir, err := ioutil.TempDir("", "gorocksdb-secondary")
+	ensure.Nil(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+
+	opts := NewDefaultOptions()
+	opts.SetCreateIfMissing(true)
+	if applyOpts != nil {
+		applyOpts(opts)
+	}
+
+	db, err := OpenAsSecondary(opts, primary, dir)
+	ensure.Nil(t, err)
+
+	t.Cleanup(db.Close)
 
 	return db
 }
